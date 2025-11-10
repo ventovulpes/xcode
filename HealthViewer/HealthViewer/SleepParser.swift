@@ -35,8 +35,8 @@ final class SleepParser: Parser {
     let timeFormatter = DateFormatter()
     
     override init() {
-        dateFormatter.dateFormat = "MM-dd-yy"
-        timeFormatter.dateFormat = "HH:mm:ss"
+        dateFormatter.dateFormat = "E MM/dd/yy"
+        timeFormatter.dateFormat = "hh:mm:ss"
         super.init()
     }
     
@@ -72,7 +72,7 @@ final class SleepParser: Parser {
     override func parseData(_ data: Data?) -> OutputDocument {
         do {
             sleepRecords = try parse(data!)
-            let header = "Day,InBed,Awake,REMSleep,CoreSleep,DeepSleep\n"
+            let header = "Day,InBed,Awake,REMSleep,CoreSleep,DeepSleep,Start,End\n"
             var csvBody: String = ""
             
             let calendar = Calendar.current
@@ -90,15 +90,18 @@ final class SleepParser: Parser {
                 var deep: Double
             }
             var sleep = SleepSummary(inBed: 0, awake: 0, rem: 0, core: 0, deep: 0)
+            var sleepStart = Date()
+            var sleepEnd = Date()
             for record in sleepRecords {
                 let key = nightKey(for: record.startTime)
                 if curNightKey == nil || key != curNightKey {
                     if let k = curNightKey {
                         csvBody +=
-                        "\(dateFormatter.string(from: k)), \(sleep.inBed / 60), \(sleep.awake / 60), \(sleep.rem / 60), \(sleep.core / 60), \(sleep.deep / 60)\n"
+                        "\(dateFormatter.string(from: k)), \(sleep.inBed / 60), \(sleep.awake / 60), \(sleep.rem / 60), \(sleep.core / 60), \(sleep.deep / 60), \(timeFormatter.string(from: sleepStart)), \(timeFormatter.string(from: sleepEnd))\n"
                     }
                     curNightKey = key
                     sleep = .init(inBed: 0, awake: 0, rem: 0, core: 0, deep: 0)
+                    sleepStart = record.startTime
                 }
                 let duration = record.endTime.timeIntervalSince(record.startTime)
                 switch record.value {
@@ -108,6 +111,7 @@ final class SleepParser: Parser {
                 case SleepType.coreSleep: sleep.core += duration
                 case SleepType.deepSleep: sleep.deep += duration
                 }
+                sleepEnd = record.endTime
             }
             /*
             let header = "type,value,date,startTime,endTime\n"
