@@ -9,10 +9,17 @@ import Foundation
 
 struct SleepRecord {
     var type: String
-    var value: String
-    var date: Date
+    var value: SleepType
     var startTime: Date
     var endTime: Date
+}
+
+enum SleepType: String {
+    case inBed = "HKCategoryValueSleepAnalysisInBed"
+    case isAwake = "HKCategoryValueSleepAnalysisAwake"
+    case remSleep = "HKCategoryValueSleepAnalysisAsleepREM"
+    case coreSleep = "HKCategoryValueSleepAnalysisAsleepCore"
+    case deepSleep = "HKCategoryValueSleepAnalysisAsleepDeep"
 }
 
 final class SleepParser: Parser {
@@ -25,7 +32,6 @@ final class SleepParser: Parser {
     }()
     
     let dateFormatter = DateFormatter()
-
     let timeFormatter = DateFormatter()
     
     override init() {
@@ -54,25 +60,59 @@ final class SleepParser: Parser {
         
         guard
             let valueString = attributeDict["value"],
-            let value = valueString == "HKCategoryValueSleepAnalysisInBed" ? "In Bed" :
-                valueString == "HKCategoryValueSleepAnalysisAwake" ? "Awake" :
-                valueString == "HKCategoryValueSleepAnalysisAsleepREM" ? "REM Sleep" :
-                valueString == "HKCategoryValueSleepAnalysisAsleepCore" ? "Core Sleep" :
-                valueString == "HKCategoryValueSleepAnalysisAsleepDeep" ? "Deep Sleep" : "Unknown",
-            let date = dateAndTimeFormatter.date(from: attributeDict["startDate"] ?? ""),
+            let value = SleepType(rawValue: valueString),
             let startTime = dateAndTimeFormatter.date(from: attributeDict["startDate"] ?? ""),
             let endTime = dateAndTimeFormatter.date(from: attributeDict["endDate"] ?? "")
             
         else { return }
         
-        sleepRecords.append(SleepRecord(type: type, value: value, date: date, startTime: startTime, endTime: endTime))
+        sleepRecords.append(SleepRecord(type: type, value: value, startTime: startTime, endTime: endTime))
     }
     
     override func parseData(_ data: Data?) -> OutputDocument {
         do {
             sleepRecords = try parse(data!)
+            let header = "Day,InBed,Awake,REMSleep,CoreSleep,DeepSleep\n"
+            var csvBody: String = ""
+            
+            let calendar = Calendar.current
+            
+            func nightKey(for date: Date) -> Date{
+                calendar.startOfDay(for: date.addingTimeInterval(6 * 3600))
+            }
+            var curNightKey: Date? = nil
+
+            struct SleepSummary {
+                var inBed: Double
+                var awake: Double
+                var rem: Double
+                var core: Double
+                var deep: Double
+            }
+            var sleep = SleepSummary(inBed: 0, awake: 0, rem: 0, core: 0, deep: 0)
+            for record in sleepRecords {
+                let key = nightKey(for: record.startTime)
+                if curNightKey == nil || key != curNightKey {
+                    if let k = curNightKey {
+                        csvBody +=
+                        "\(dateFormatter.string(from: k)), \(sleep.inBed / 60), \(sleep.awake / 60), \(sleep.rem / 60), \(sleep.core / 60), \(sleep.deep / 60)\n"
+                    }
+                    curNightKey = key
+                    sleep = .init(inBed: 0, awake: 0, rem: 0, core: 0, deep: 0)
+                }
+                let duration = record.endTime.timeIntervalSince(record.startTime)
+                switch record.value {
+                case SleepType.inBed: sleep.inBed += duration
+                case SleepType.isAwake: sleep.awake += duration
+                case SleepType.remSleep: sleep.rem += duration
+                case SleepType.coreSleep: sleep.core += duration
+                case SleepType.deepSleep: sleep.deep += duration
+                }
+            }
+            /*
             let header = "type,value,date,startTime,endTime\n"
             let csvBody = sleepRecords.map { "\($0.type),\($0.value),\(dateFormatter.string(from: $0.date)),\(timeFormatter.string(from: $0.startTime)),\(timeFormatter.string(from: $0.endTime))" }.joined(separator: "\n")
+            */
             let csv = header + csvBody
             let out: OutputDocument = OutputDocument(text: csv)
             return out
